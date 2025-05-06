@@ -264,3 +264,73 @@
     )
   )
 )
+
+
+(define-map creator-ratings
+  { creator: principal }
+  {
+    bonds-created: uint,
+    bonds-completed: uint,
+    bonds-defaulted: uint,
+    total-raised: uint
+  }
+)
+
+(define-read-only (get-creator-rating (creator principal))
+  (default-to 
+    { bonds-created: u0, bonds-completed: u0, bonds-defaulted: u0, total-raised: u0 }
+    (map-get? creator-ratings { creator: creator })
+  )
+)
+
+(define-public (update-creator-stats (bond-id uint))
+  (let 
+    ((bond (unwrap! (map-get? bonds { bond-id: bond-id }) err-not-found))
+     (creator (get creator bond))
+     (current-stats (get-creator-rating creator)))
+    
+    (map-set creator-ratings
+      { creator: creator }
+      {
+        bonds-created: (+ (get bonds-created current-stats) u1),
+        bonds-completed: (get bonds-completed current-stats),
+        bonds-defaulted: (get bonds-defaulted current-stats),
+        total-raised: (+ (get total-raised current-stats) (get current-amount bond))
+      }
+    )
+    (ok true)
+  )
+)
+
+
+(define-constant err-transfer-failed (err u115))
+
+(define-public (transfer-investment (bond-id uint) (amount uint) (recipient principal))
+  (let
+    ((bond (unwrap! (map-get? bonds { bond-id: bond-id }) err-not-found))
+     (sender-investment (unwrap! (map-get? investments { bond-id: bond-id, investor: tx-sender }) err-no-investment))
+     (recipient-investment (default-to { amount: u0, yield-claimed: false } 
+       (map-get? investments { bond-id: bond-id, investor: recipient }))))
+    
+    (asserts! (>= (get amount sender-investment) amount) err-insufficient-funds)
+    (asserts! (get is-active bond) err-bond-not-active)
+    
+    (map-set investments
+      { bond-id: bond-id, investor: tx-sender }
+      { 
+        amount: (- (get amount sender-investment) amount),
+        yield-claimed: (get yield-claimed sender-investment)
+      }
+    )
+    
+    (map-set investments
+      { bond-id: bond-id, investor: recipient }
+      {
+        amount: (+ (get amount recipient-investment) amount),
+        yield-claimed: (get yield-claimed recipient-investment)
+      }
+    )
+    
+    (ok true)
+  )
+)
